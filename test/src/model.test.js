@@ -265,3 +265,117 @@ test("it should load multiple files with a glob pattern", (t) => {
     t.ok(geojson.features, "has features");
   });
 });
+
+test("it should generate custom URLs using the generateUrls function", (t) => {
+  t.plan(3);
+
+  const customGenerateUrls = (config) => {
+    return config.regions.map(region => `https://example.com/data/${region}`);
+  };
+
+  const config = {
+    "koop-provider-csv": {
+      name: "csv",
+      sources: {
+        test: {
+          regions: ["Region1", "Region2"],
+          geometryColumns: {
+            longitude: "longitude",
+            latitude: "latitude",
+          },
+        },
+      },
+    },
+  };
+
+  const csvData = "id,longitude,latitude\n1,-122,37\n2,-121,36";
+
+  // Mock fetch response for generated URLs
+  const fetch = fetchMock.sandbox()
+    .mock("https://example.com/data/Region1", {
+      body: csvData,
+      headers: { 'Content-Type': 'text/csv' },
+    })
+    .mock("https://example.com/data/Region2", {
+      body: csvData,
+      headers: { 'Content-Type': 'text/csv' },
+    });
+
+  const Model = proxyquire("../../src/model", {
+    "node-fetch": fetch,
+    config,
+  });
+  const model = new Model();
+  model.setGenerateUrls(customGenerateUrls);
+
+  model.getData({ params: { id: "test" } }, (err, geojson) => {
+    t.error(err, "no error");
+    t.ok(geojson, "has geojson");
+    t.equal(
+      geojson.type,
+      "FeatureCollection",
+      "creates a feature collection object"
+    );
+  });
+});
+
+test("it should validate URLs using isValidUrl function", async (t) => {
+  t.plan(2);
+
+  const validUrl = "http://example.com/valid.csv";
+  const invalidUrl = "http://example.com/invalid.csv";
+
+  const fetch = fetchMock.sandbox()
+    .mock(validUrl, { status: 200, headers: { 'Content-Type': 'text/csv' } }) // Mock valid URL with a 200 response
+    .mock(invalidUrl, { status: 404 }); // Mock invalid URL with a 404 response
+
+  const isValid = proxyquire("../../src/model", {
+    "node-fetch": fetch,
+  }).isValidUrl;
+
+  const validResult = await isValid(validUrl);
+  const invalidResult = await isValid(invalidUrl);
+
+  t.ok(validResult, "valid URL is recognized");
+  t.notOk(invalidResult, "invalid URL is recognized as such");
+});
+
+test("it should apply custom transformation logic in translate", (t) => {
+  t.plan(3);
+
+  const config = {
+    "koop-provider-csv": {
+      name: "csv",
+      sources: {
+        test: {
+          url: "http://example.com/points.csv",
+          geometryColumns: {
+            longitude: "longitude",
+            latitude: "latitude",
+          },
+        },
+      },
+    },
+  };
+
+  const customTransform = (lat, lon) => [lon + 1, lat + 1]; // Custom transformation logic
+
+  const Model = proxyquire("../../src/model", {
+    config,
+  });
+  const model = new Model();
+  model.setTransformCoordinates(customTransform);
+
+  const csvData = "id,longitude,latitude\n1,-122,37\n2,-121,36";
+  const readable = new Readable();
+  readable.push(csvData);
+  readable.push(null);
+
+  const fetch = fetchMock.sandbox().mock("http://example.com/points.csv", readable, { sendAsJson: false });
+
+  model.getData({ params: { id: "test" } }, (err, geojson) => {
+    t.error(err, "no error");
+    t.ok(geojson, "has geojson");
+    t.deepEqual(geojson.features[0].geometry.coordinates, [-121, 38], "coordinates transformed");
+  });
+});

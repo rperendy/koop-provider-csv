@@ -1,3 +1,5 @@
+let transformCoordinates = (lon, lat) => [lon, lat]; // Default pass-through
+
 function translate(data, config) {
   const metadata = config.metadata || {};
   const columns = Object.keys(data[0]);
@@ -22,7 +24,10 @@ function formatFeature(values, columns, geometryColumns, idField) {
     properties: {},
     geometry: {
       type: "Point",
-      coordinates: [],
+      coordinates: transformCoordinates(
+        values[geometryColumns.longitude],
+        values[geometryColumns.latitude]
+      ),
     },
   };
 
@@ -64,4 +69,4 @@ function isValidGeometry(geometry) {
   );
 }
 
-module.exports = translate;
+module.exports = { translate, setTransformCoordinates: fn => transformCoordinates = fn };

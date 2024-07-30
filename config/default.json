@@ -12,7 +12,8 @@
         "geometryColumns": {
           "latitude": "",
           "longitude": ""
-        }
+        },
+        "useDynamicUrl":false
       }
     }
   }

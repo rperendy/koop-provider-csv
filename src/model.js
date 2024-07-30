@@ -14,6 +14,8 @@ const isUrl = require("is-url-superb");
 const { glob } = require("glob");
 const translate = require("./utils/translate-csv");
 
+let generateUrls = (config) => [config.url]; // Default pass-through function
+
 function Model(koop) {}
 
 // Public function to return data from the
@@ -23,12 +25,21 @@ Model.prototype.getData = async function (req, callback) {
   const sourceId = req.params.id;
   const sourceConfig = config.sources[sourceId];
 
-  const hasUrlString =
-    typeof sourceConfig.url === "string" && sourceConfig.url !== "";
+  const urls = generateUrls(sourceConfig);
+
+  const validUrls = [];
+  for (const url of urls){
+    if (await isUrl(url)){
+      if (await isValidUrl(url)){
+        validUrls.push(url);
+      }
+    }
+  };
+  const hasValidUrls = validUrls.length > 0;
   const hasPathString =
     typeof sourceConfig.path === "string" && sourceConfig.path !== "";
 
-  if (!hasUrlString && !hasPathString) {
+  if (!hasValidUrls && !hasPathString) {
     console.error(
       new Error(
         'No CSV source specified. Either "url" or "path" must be specified at the source configuration.'
@@ -38,7 +49,7 @@ Model.prototype.getData = async function (req, callback) {
     return;
   }
 
-  if (hasUrlString && hasPathString) {
+  if (hasValidUrls && hasPathString) {
     console.error(
       new Error(
         'Invalid CSV source. Either "url" or "path" must be specified at the source configuration.'
@@ -51,8 +62,12 @@ Model.prototype.getData = async function (req, callback) {
   try {
     let csvData;
 
-    if (hasUrlString) {
-      csvData = await readFromUrl(sourceConfig.url);
+    if (hasValidUrls) {
+      if (validUrls.length === 1){
+        csvData = await readFromUrl(validUrls[0]);
+      } else {
+        csvData = await readFromUrls(validUrls);
+      }
     } else {
       csvData = await readFromPath(sourceConfig.path);
     }
@@ -64,6 +79,16 @@ Model.prototype.getData = async function (req, callback) {
     callback("Unable to read CSV data");
   }
 };
+
+async function isValidUrl(url) {
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    return res.ok;
+  } catch (error) {
+    console.error(`URL check failed: ${url}`, error);
+    return false;
+  }
+}
 
 async function readFromUrl(url) {
   let readStream;
@@ -80,6 +105,16 @@ async function readFromUrl(url) {
   }
 
   return paraseData(readStream);
+}
+
+async function readFromUrls(urls) {
+  const allData = [];
+  for (let url of urls){
+    const data = await readFromUrl(url);
+    allData.push(...data);
+  }
+
+  return allData;
 }
 
 async function readFromPath(path) {
@@ -121,4 +156,4 @@ async function paraseData(readStream) {
   });
 }
 
-module.exports = Model;
+module.exports = { Model, setGenerateUrls: (fn) => { generateUrls = fn; } };
